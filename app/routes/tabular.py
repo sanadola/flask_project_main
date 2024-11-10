@@ -71,13 +71,10 @@ def create_tabular():
     if not tabular_name:
         return jsonify({'message': 'Missing tabular name'}), 400
 
-    # Read the CSV data into a Pandas DataFrame
     df = pd.read_csv(tabular_file)
     print("df",df)
-    # Convert DataFrame to binary data
     data = df.to_csv(index=False).encode('utf-8')
     print("data",data)
-    # Create a new TabularData instance
     new_data = TabularData(tabular_data=data, tabular_name=tabular_name,user=user)
     print("new_data",new_data)
     db.session.add(new_data)
@@ -138,35 +135,27 @@ def create_tabular():
     'security': [{'Bearer': []}]
 })
 def update_tabular(id):
-    user_id = get_jwt_identity()
     tabular_data = TabularData.query.filter_by(id=id).first()
 
     if not tabular_data:
         return jsonify({'message': 'Tabular data not found'}), 404
 
-    # Update the tabular file if a new one is provided
     if 'tabular_file' in request.files:
         tabular_file = request.files['tabular_file']
         df = pd.read_csv(tabular_file)
         new_data = df.to_csv(index=False).encode('utf-8')
-        tabular_data.tabular_data = new_data  # Update the binary data in the database
+        tabular_data.tabular_data = new_data
 
-    # Update the name if a new tabular name is provided
     if 'tabular_name' in request.form:
         tabular_data.tabular_name = request.form['tabular_name']
 
-    # Commit changes to the database
     db.session.commit()
 
-    # Prepare the response dictionary
     response_data = tabular_data.to_dict()
 
-    # If the binary data is present, base64 encode it before returning
     if 'tabular_data' in response_data:
-        # Base64 encode the binary content
         response_data['tabular_data'] = base64.b64encode(response_data['tabular_data']).decode('utf-8')
 
-    # Return the updated tabular data (without binary data, as base64)
     return jsonify(response_data), 200
 # ====================================================================================================================
 #                            List All Tabular Files
@@ -203,11 +192,9 @@ def update_tabular(id):
 })
 def list_tabular():
     user_id = get_jwt_identity()  # Get the user ID from the JWT
-    print("user_id", user_id)
 
-    # Correct query using the relationship 'user' and filter by 'username'
-    tabular_data = TabularData.query.join(User).filter(User.username == user_id).all()  # Join with User model
-    print("tabular_data", tabular_data)
+
+    tabular_data = TabularData.query.join(User).filter(User.username == user_id).all()
 
     data_list = []
     if tabular_data:
@@ -277,27 +264,16 @@ def list_tabular():
 })
 
 def get_tabular(id):
-    # Extract the user ID and data ID from the request
-    user_id = get_jwt_identity()
-
-
-    # Query for the specific tabular data entry for the given user ID and data ID
     tabular_data = TabularData.query.filter_by(id=id).first()
 
-    # If no tabular data entry is found
     if not tabular_data:
         return jsonify({'error': 'Data not found'}), 404
 
-    # Print to debug
-    print("tabular_data", tabular_data)
-
-    # Convert binary data back to Pandas DataFrame
     try:
         df = pd.read_csv(io.BytesIO(tabular_data.tabular_data))  # Assuming 'tabular_data' is the binary data column
     except Exception as e:
         return jsonify({'error': f"Error reading CSV: {str(e)}"}), 500
 
-    # Perform data analysis
     statistics = {
         'mean': df.mean().to_dict(),
         'median': df.median().to_dict(),
@@ -305,7 +281,6 @@ def get_tabular(id):
         'quartiles': df.quantile([0.25, 0.5, 0.75]).to_dict(),
     }
 
-    # Calculate IQR for outlier detection
     q1 = df.quantile(0.25)
     q3 = df.quantile(0.75)
     iqr = q3 - q1
@@ -350,15 +325,15 @@ def get_tabular(id):
     'security': [{'Bearer': []}]
 })
 def delete_tabular(id):
-    user_id = get_jwt_identity()  # Get user ID from JWT
-    data = TabularData.filter_by(user_id=user_id,id=id)
+    data = TabularData.query.filter_by(id=id).first()
+
     if data:
         db.session.delete(data)
         db.session.commit()
-        return jsonify({'message': 'the file deleted successfully'}), 200
 
+        return jsonify({'message': 'The file was deleted successfully'}), 200
     else:
-        return jsonify({'message': 'the file not found'}), 404
+        return jsonify({'message': 'The file not found'}), 404
 
 
 

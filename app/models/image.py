@@ -6,16 +6,14 @@ from app import db
 
 
 
-class Image(db.Model):
+class ImageModel(db.Model):
     __tablename__ = 'image'
     id = db.Column(db.Integer, primary_key=True)
     image_name = db.Column(db.String(80), nullable=True)
     image_data = db.Column(db.LargeBinary, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-    # Foreign key relationship with User model
-    user_id = Column(Integer, ForeignKey('user.id'))
-    user = relationship("User", backref="images")
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    user = db.relationship('User', backref=db.backref('images', lazy=True))
 
     def to_dict(self):
         return {

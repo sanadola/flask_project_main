@@ -1,3 +1,4 @@
+import base64
 import io
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import (
@@ -5,11 +6,11 @@ from flask_jwt_extended import (
 )
 from flasgger import swag_from
 from app import db
-from app.models.image import Image
+from app.models.image import  ImageModel
 from app.models.user import User
 from app.utils.auth_helpers import check_token_revoked
-from PIL import Image
 import numpy as np
+from PIL import Image
 
 import cv2
 
@@ -18,6 +19,9 @@ image_api = Blueprint('image_api', __name__)
 # =====================================================================================================
 #                                  Creating a Image From User
 # ======================================================================================================
+def allowed_file(filename):
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 @image_api.route('/create_image', methods=['POST'])
 @jwt_required()
 @check_token_revoked
@@ -57,12 +61,17 @@ image_api = Blueprint('image_api', __name__)
 
 def create_image():
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+
+    # Fetch the user from the database
+    user = User.query.filter_by(username=user_id).first()
     if not user:
-        user = None
+        return jsonify({'message': 'User not found'}), 404
+
+    # Check if an image file is provided
     if 'image_file' not in request.files:
         return jsonify({'message': 'No image file part'}), 400
 
+    # Get the image file and image name from the request
     image_file = request.files['image_file']
     image_name = request.form.get('image_name')
 
@@ -72,8 +81,9 @@ def create_image():
     # Read the image file content
     image_data = image_file.read()
 
-    # Create a new Image instance
-    new_image = Image(image_name=image_name, image_data=image_data,user=user)
+    # Create a new Image instance and associate it with the user
+    new_image = Image(image_name=image_name, image_data=image_data, user=user)  # This should be valid
+
     db.session.add(new_image)
     db.session.commit()
 
@@ -133,21 +143,33 @@ def create_image():
     'security': [{'Bearer': []}]
 })
 def update_image(id):
-    user_id = get_jwt_identity()
-    image = Image.filter_by(user_id=user_id, id=id).first()
+    # Retrieve the image from the database
+    image = ImageModel.query.filter_by(id=id).first()
 
     if not image:
         return jsonify({'message': 'Image not found'}), 404
 
+    # Update the image data if a new image is uploaded
     if 'image_file' in request.files:
         image_file = request.files['image_file']
         image.image_data = image_file.read()
 
+    # Update the image name if provided
     if 'image_name' in request.form:
         image.image_name = request.form['image_name']
 
+    # Commit the changes to the database
     db.session.commit()
-    return jsonify(image.to_dict()), 200
+
+    # Convert the image data to base64 for JSON serialization
+    image_data_base64 = base64.b64encode(image.image_data).decode('utf-8')
+
+    # Return the updated image data
+    return jsonify({
+        'id': image.id,
+        'image_name': image.image_name,
+        'image_data': image_data_base64  # Return base64 encoded image data
+    }), 200
 # ====================================================================================================================
 #                                                   List All Images
 # ====================================================================================================================
@@ -181,24 +203,31 @@ def update_image(id):
 })
 def list_all_image():
     user_id = get_jwt_identity()
-    image_data = Image.query.filter_by(user_id=user_id).all()
+    user = User.query.filter_by(username=user_id).first()
+    image_data = ImageModel.query.filter_by(user=user).all()  # Use ImageModel, not Image
+
     data_list = []
     if image_data:
         for data in image_data:
             binary_data = data.image_data
 
-            # Decode the binary data into an image
+            # Decode the binary data into an image using PIL's Image class
             image = Image.open(io.BytesIO(binary_data))
+
+            # Convert the image to a base64 string
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='PNG')  # Or 'JPEG', depending on your format
+            img_byte_arr = img_byte_arr.getvalue()
+            image_base64 = base64.b64encode(img_byte_arr).decode('utf-8')  # Convert to base64 string
+
             data_dict = {
                 'id': data.id,
-                'image_name':data.image_name,
-                'image_data': image
+                'image_name': data.image_name,
+                'image_data': image_base64  # Return base64 encoded image data
             }
             data_list.append(data_dict)
 
-
     return jsonify(data_list)
-
 
 # =====================================================================================================================
 #                      Get a Specific Image and Generating Color Histograms and Segmentation Masks,
@@ -255,30 +284,28 @@ def list_all_image():
     'security': [{'Bearer': []}]
 })
 def get_image(id):
-    user_id = get_jwt_identity()
-    image_data = Image.filter_by(user_id=user_id,id=id).first()
+    image_data = ImageModel.query.filter_by(id=id).first()
+
     if not image_data:
         return jsonify({'error': 'Data not found'}), 404
 
-    # Convert binary data back to PIL Image
-    image = Image.open(io.BytesIO(image_data.data))
+    image = Image.open(io.BytesIO(image_data.image_data))
 
-    # Convert PIL Image to OpenCV format
     image_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
-    # Generate color histogram
-    hist, bins = cv2.calcHist([image_cv], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+    hist = cv2.calcHist([image_cv], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
+
     hist_flattened = hist.flatten()
 
-    # Generate segmentation mask (example: simple thresholding)
     ret, thresh = cv2.threshold(image_cv, 127, 255, cv2.THRESH_BINARY)
 
-    # Return results
+    segmentation_mask = thresh.tolist()
+
+
     return jsonify({
         'histogram': hist_flattened.tolist(),
-        'segmentation_mask': thresh.tolist()
+        'segmentation_mask': segmentation_mask
     })
-
 
 # ==================================================================================================================
 #                                Delete Specific Image
@@ -315,7 +342,7 @@ def get_image(id):
 })
 def delete_image(id):
     user_id = get_jwt_identity()
-    image = Image.filter_by(user_id=user_id,id=id)
+    image = ImageModel.query.filter_by(id=id).first()
     if image:
         db.session.delete(image)
         db.session.commit()
