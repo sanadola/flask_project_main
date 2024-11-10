@@ -10,7 +10,8 @@ class TabularData(db.Model):
     tabular_data = db.Column(db.LargeBinary)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user_id = Column(Integer, ForeignKey('user.id'))
-    user = relationship("User", backref="tabular")
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Foreign key to User table
+    user = relationship('User', backref='tabular_data')  # Relationship to User model
 
     def to_dict(self):
         return {
