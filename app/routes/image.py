@@ -31,7 +31,7 @@ def allowed_file(filename):
     'description': 'Creates a new image entry for the authenticated user',
     'parameters': [
         {
-            'name': 'file',
+            'name': 'image_file',
             'in': 'formData',
             'type': 'file',
             'required': True,
@@ -64,6 +64,7 @@ def create_image():
 
     # Fetch the user from the database
     user = User.query.filter_by(username=user_id).first()
+    print("user",user)
     if not user:
         return jsonify({'message': 'User not found'}), 404
 
@@ -82,7 +83,7 @@ def create_image():
     image_data = image_file.read()
 
     # Create a new Image instance and associate it with the user
-    new_image = Image(image_name=image_name, image_data=image_data, user=user)  # This should be valid
+    new_image = ImageModel(image_name=image_name, image_data=image_data, user=user)  # This should be valid
 
     db.session.add(new_image)
     db.session.commit()
@@ -108,8 +109,8 @@ def create_image():
             'description': 'ID of the image to update'
         },
         {
-            'name': 'body',
-            'in': 'formData',
+            'in': 'formData',  # Change 'name' to 'in'
+            'type': 'object',
             'required': False,
             'schema': {
                 'type': 'object',
@@ -190,6 +191,7 @@ def update_image(id):
                     'type': 'object',
                     'properties': {
                         'id': {'type': 'integer', 'description': 'ID of the image entry'},
+                        'image_data': {'type': 'string', 'description': 'Image Base64 encoded'},
                         'image_name': {'type': 'string', 'description': 'Name of the image'}
                     }
                 }
@@ -257,19 +259,19 @@ def list_all_image():
                 'properties': {
                     'histogram': {
                         'type': 'array',
+                        'description': 'Flattened color histogram of the image',
                         'items': {
                             'type': 'integer',
-                            'description': 'Histogram values'
-                        },
-                        'description': 'Flattened color histogram of the image'
+                            'description': 'Frequency of a specific color channel value (e.g., red, green, blue)'
+                        }
                     },
                     'segmentation_mask': {
                         'type': 'array',
+                        'description': 'Segmentation mask (example: binary threshold)',
                         'items': {
                             'type': 'integer',
-                            'description': 'Pixel values'
-                        },
-                        'description': 'Segmentation mask (example: binary threshold)'
+                            'description': 'Pixel intensity value (0 or 1 in case of binary threshold)'
+                        }
                     }
                 }
             }
